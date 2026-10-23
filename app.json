@@ -1,13 +1,36 @@
 {
   "expo": {
-    "name": "SOS_map",
-    "slug": "SOS_map",
+    "name": "동네SOS",
+    "slug": "sos-map",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "sosmap",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "민원 현장 사진을 선택하기 위해 사진 라이브러리 접근이 필요합니다.",
+          "cameraPermission": "민원 현장 사진을 촬영하기 위해 카메라 접근이 필요합니다.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "주변 민원과 신고 위치를 표시하기 위해 현재 위치 접근이 필요합니다."
+        }
+      ]
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "민원 현장 사진을 촬영하기 위해 카메라 접근이 필요합니다.",
+        "NSPhotoLibraryUsageDescription": "민원 현장 사진을 선택하기 위해 사진 라이브러리 접근이 필요합니다.",
+        "NSLocationWhenInUseUsageDescription": "주변 민원과 신고 위치를 표시하기 위해 현재 위치 접근이 필요합니다."
+      }
     },
     "android": {
       "adaptiveIcon": {
