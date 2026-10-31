@@ -1,5 +1,7 @@
+import AppIcon from './AppIcon';
+import { colors } from '../theme/colors';
 import MapView, { Marker } from 'react-native-maps';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { ComplaintMapProps } from './ComplaintMap.types';
 
 export default function ComplaintMap({
@@ -14,7 +16,7 @@ export default function ComplaintMap({
       style={StyleSheet.absoluteFill}
       region={region}
       onRegionChangeComplete={onRegionChangeComplete}
-      showsUserLocation={Boolean(userCoordinate)}
+      showsUserLocation={false}
       showsMyLocationButton={false}
       toolbarEnabled={false}
     >
@@ -26,7 +28,7 @@ export default function ComplaintMap({
           tracksViewChanges={false}
         >
           <View style={[styles.marker, { backgroundColor: item.color }]}>
-            <Text style={styles.markerText}>{item.emoji}</Text>
+            <AppIcon name={item.icon} size={21} color="white" />
           </View>
         </Marker>
       ))}
@@ -41,9 +43,9 @@ export default function ComplaintMap({
 
 const styles = StyleSheet.create({
   marker: {
-    width: 35,
-    height: 35,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 15,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     justifyContent: 'center',
@@ -57,7 +59,7 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     borderWidth: 3,
     borderColor: '#FFFFFF',
-    backgroundColor: '#0878F9',
+    backgroundColor: colors.sky,
     elevation: 5,
   },
 });

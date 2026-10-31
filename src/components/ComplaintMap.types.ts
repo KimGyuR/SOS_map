@@ -1,3 +1,4 @@
+import type { IconName } from './AppIcon';
 export type MapCoordinate = {
   latitude: number;
   longitude: number;
@@ -12,7 +13,7 @@ export type MapComplaint = {
   id: string;
   title: string;
   coordinate: MapCoordinate;
-  emoji: string;
+  icon: IconName;
   color: string;
 };
 
