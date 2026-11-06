@@ -2,6 +2,7 @@ import { ApiError, toApiError } from './errors';
 import { getAccessToken, handleUnauthorized } from './session';
 
 const REQUEST_TIMEOUT_MS = 15_000;
+const NETWORK_MESSAGE = '인터넷 연결을 확인하고 다시 시도해 주세요.';
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -45,8 +46,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined && !isFormData) headers['Content-Type'] = 'application/json';
+  const token = auth ? getAccessToken() : null;
   if (auth) {
-    const token = getAccessToken();
     if (!token) {
       handleUnauthorized();
       throw new ApiError(401, 'UNAUTHORIZED', '로그인이 필요해요.');
@@ -71,17 +72,23 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } catch (error) {
     if (signal?.aborted) throw error;
     if (controller.signal.aborted) throw new ApiError(0, 'TIMEOUT', '서버 응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.');
-    throw new ApiError(0, 'NETWORK_ERROR', '인터넷 연결을 확인하고 다시 시도해 주세요.');
+    throw new ApiError(0, 'NETWORK_ERROR', NETWORK_MESSAGE);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener('abort', cancel);
   }
 
-  const data = await readBody(response);
-  if (!response.ok) {
-    // LOGIN_FAILED is also 401, but login requests are sent without a token and must not log out.
-    if (auth && response.status === 401) handleUnauthorized();
-    throw toApiError(response.status, data);
+  // LOGIN_FAILED is also 401, but login requests are sent without a token and must not log out.
+  // Skip when the token changed meanwhile (a late 401 must not wipe a fresh login).
+  if (auth && response.status === 401 && getAccessToken() === token) handleUnauthorized();
+
+  let data: unknown;
+  try {
+    data = await readBody(response);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(0, 'NETWORK_ERROR', NETWORK_MESSAGE);
   }
+  if (!response.ok) throw toApiError(response.status, data);
   return data as T;
 }

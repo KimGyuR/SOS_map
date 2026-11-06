@@ -340,3 +340,24 @@ test('API 9 preview sends server codes, accepts a failed content check and repor
   await assert.rejects(down.previewComplaint(input), { code: 'AI_UNAVAILABLE', status: 502 });
   assert.equal(session.getAccessToken(), 'jwt-abc');
 });
+
+test('a late 401 from an old token does not log out a fresh login', async () => {
+  session.setAccessToken('old-token');
+  let notified = 0;
+  const unsubscribe = session.onUnauthorized(() => { notified += 1; });
+  const { apiRequest } = loadClient(async () => {
+    session.setAccessToken('new-token');
+    return json({ status: 401, code: 'UNAUTHORIZED', message: '로그인이 필요해요.', errors: [] }, 401);
+  });
+  await assert.rejects(apiRequest('/users/mypage'), { code: 'UNAUTHORIZED' });
+  assert.equal(session.getAccessToken(), 'new-token');
+  assert.equal(notified, 0);
+  unsubscribe();
+});
+
+test('a connection dropped while reading the body becomes NETWORK_ERROR', async () => {
+  session.setAccessToken('token-123');
+  const broken = { ok: true, status: 200, text: async () => { throw new TypeError('Network request failed'); } };
+  const { apiRequest } = loadClient(async () => broken);
+  await assert.rejects(apiRequest('/complaints'), { code: 'NETWORK_ERROR', status: 0 });
+});
