@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 
 import { validateSignup } from '../domain/validation';
 import {
+  checkEmail,
+  checkLoginId,
   login,
   logout,
   signUp as apiSignUp,
@@ -162,6 +164,18 @@ export function useAuthSession() {
     setLoginPassword('');
     setPasswordConfirmation('');
   }
+// 이메일 중복 확인
+async function onCheckEmail(email: string): Promise<boolean> {
+  const result = await checkEmail(email);
+  return result.available;
+}
+
+// 아이디 중복 확인
+async function onCheckLoginId(loginId: string): Promise<boolean> {
+  const result = await checkLoginId(loginId);
+  return result.available;
+}
+
 
   return {
     isAuthenticated: currentAccount !== null,
@@ -184,5 +198,7 @@ export function useAuthSession() {
     signUp,
     signOut,
     switchAuthMode,
+    onCheckEmail,
+    onCheckLoginId,
   };
 }
