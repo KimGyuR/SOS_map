@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { colors } from '../theme/colors';
 import { styles } from '../theme/appStyles';
@@ -25,7 +26,18 @@ type Props = Pick<AppModel,
   | 'signIn'
   | 'signUp'
   | 'switchAuthMode'
->;
+> & {
+  // 서버 연결 담당이 연결할 함수. true = 사용 가능, false = 이미 사용 중. 없으면 데모로 항상 "사용 가능"으로 처리
+  onCheckEmail?: (email: string) => Promise<boolean>;
+  onCheckLoginId?: (loginId: string) => Promise<boolean>;
+};
+
+type CheckResult = { ok: boolean; message: string } | null;
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LOGIN_ID_PATTERN = /^[A-Za-z0-9._-]{4,20}$/;
+
+const checkButtonStyle = { minHeight: 52, paddingHorizontal: 14, borderRadius: 13, borderWidth: 1, borderColor: colors.sky, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' } as const;
 
 export default function LoginScreen({
   authReady,
@@ -46,7 +58,49 @@ export default function LoginScreen({
   signIn,
   signUp,
   switchAuthMode,
+  onCheckEmail,
+  onCheckLoginId,
 }: Props) {
+  const [emailCheck, setEmailCheck] = useState<CheckResult>(null);
+  const [idCheck, setIdCheck] = useState<CheckResult>(null);
+  const [checking, setChecking] = useState<'email' | 'id' | null>(null);
+
+  const changeEmail = (value: string) => {
+    setSignupEmail(value);
+    setEmailCheck(null);
+  };
+  const changeLoginId = (value: string) => {
+    setLoginId(value);
+    setIdCheck(null);
+  };
+  const checkEmail = async () => {
+    const email = signupEmail.trim();
+    if (!EMAIL_PATTERN.test(email)) return setEmailCheck({ ok: false, message: '이메일 형식을 확인해 주세요.' });
+    setChecking('email');
+    try {
+      const available = onCheckEmail ? await onCheckEmail(email) : true;
+      setEmailCheck(available ? { ok: true, message: '사용할 수 있는 이메일이에요.' } : { ok: false, message: '이미 사용 중인 이메일이에요.' });
+    } catch {
+      setEmailCheck({ ok: false, message: '확인하지 못했어요. 잠시 후 다시 시도해 주세요.' });
+    } finally {
+      setChecking(null);
+    }
+  };
+  const checkLoginId = async () => {
+    const id = loginId.trim();
+    if (!LOGIN_ID_PATTERN.test(id)) return setIdCheck({ ok: false, message: '아이디는 4~20자 영문, 숫자, . _ - 만 쓸 수 있어요.' });
+    setChecking('id');
+    try {
+      const available = onCheckLoginId ? await onCheckLoginId(id) : true;
+      setIdCheck(available ? { ok: true, message: '사용할 수 있는 아이디예요.' } : { ok: false, message: '이미 사용 중인 아이디예요.' });
+    } catch {
+      setIdCheck({ ok: false, message: '확인하지 못했어요. 잠시 후 다시 시도해 주세요.' });
+    } finally {
+      setChecking(null);
+    }
+  };
+  const resultText = (result: CheckResult) => (result ? <Text style={{ color: result.ok ? '#2E7D5B' : '#D84848', fontSize: 11, marginTop: 7 }}>{result.message}</Text> : null);
+
   if (!authReady) {
     return (
       <View style={styles.authLoadingScreen}>
@@ -86,35 +140,49 @@ export default function LoginScreen({
                 returnKeyType="next"
               />
               <Text style={styles.inputLabel}>이메일</Text>
-              <TextInput
-                accessibilityLabel="이메일"
-                style={styles.textInput}
-                placeholder="이메일 주소를 입력해 주세요"
-                value={signupEmail}
-                onChangeText={setSignupEmail}
-                maxLength={254}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                autoComplete="email"
-                returnKeyType="next"
-              />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  accessibilityLabel="이메일"
+                  style={[styles.textInput, { flex: 1 }]}
+                  placeholder="이메일 주소를 입력해 주세요"
+                  value={signupEmail}
+                  onChangeText={changeEmail}
+                  maxLength={254}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  returnKeyType="next"
+                />
+                <Pressable accessibilityRole="button" accessibilityLabel="이메일 중복 확인" disabled={checking !== null} onPress={() => void checkEmail()} style={checkButtonStyle}>
+                  <Text style={{ color: colors.sky, fontSize: 13, fontWeight: '700' }}>{checking === 'email' ? '확인 중' : '중복 확인'}</Text>
+                </Pressable>
+              </View>
+              {resultText(emailCheck)}
             </>
           ) : null}
           <Text style={styles.inputLabel}>아이디</Text>
-          <TextInput
-            accessibilityLabel="아이디"
-            style={styles.textInput}
-            placeholder="4~20자 영문, 숫자, . _ -"
-            value={loginId}
-            onChangeText={setLoginId}
-            maxLength={20}
-            autoCapitalize="none"
-            autoCorrect={false}
-            textContentType="username"
-            autoComplete="username"
-            returnKeyType="next"
-          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TextInput
+              accessibilityLabel="아이디"
+              style={[styles.textInput, { flex: 1 }]}
+              placeholder="4~20자 영문, 숫자, . _ -"
+              value={loginId}
+              onChangeText={changeLoginId}
+              maxLength={20}
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="username"
+              autoComplete="username"
+              returnKeyType="next"
+            />
+            {authMode === 'signup' ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="아이디 중복 확인" disabled={checking !== null} onPress={() => void checkLoginId()} style={checkButtonStyle}>
+                <Text style={{ color: colors.sky, fontSize: 13, fontWeight: '700' }}>{checking === 'id' ? '확인 중' : '중복 확인'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {authMode === 'signup' ? resultText(idCheck) : null}
           <Text style={styles.inputLabel}>비밀번호</Text>
           <TextInput
             accessibilityLabel="비밀번호"

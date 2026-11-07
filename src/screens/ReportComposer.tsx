@@ -1,5 +1,5 @@
 import { getAreaFromAddress } from '../domain/complaints';
-import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { CATEGORIES, FESTIVALS, getCategory } from '../domain/catalog';
 import { colors } from '../theme/colors';
 import { styles } from '../theme/appStyles';
@@ -35,7 +35,15 @@ type Props = Pick<AppModel,
   | 'advanceStep'
   | 'submitComplaint'
   | 'updateReportLocation'
->;
+> & {
+  // 아래는 서버 연결 담당이 값을 넘겨 줄 자리예요. 없으면 해당 영역은 보이지 않아요.
+  contentCheck?: { passed: boolean; feedback: string } | null; // API 9번 contentCheck
+  blurredPhotoUri?: string | null; // API 9번 blurredImageUrl
+  faceCount?: number | null; // API 14번/9번 faceCount
+  resultImage?: { url: string; description: string } | null; // API 10번 결과 이미지
+  resultImageLoading?: boolean; // 결과 이미지 만드는 중 (최대 60초)
+  resultImageFailed?: boolean; // 결과 이미지 만들기 실패
+};
 
 export default function ReportComposer({
   selectedFestival,
@@ -64,10 +72,18 @@ export default function ReportComposer({
   advanceStep,
   submitComplaint,
   updateReportLocation,
+  contentCheck = null,
+  blurredPhotoUri = null,
+  faceCount = null,
+  resultImage = null,
+  resultImageLoading = false,
+  resultImageFailed = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const selectedCategory = getCategory(category);
   const aiOutcome = `‘${selectedCategory.label}’ 유형으로 분류되어 ${selectedCategory.agency}에 전달될 예정이에요. 예상 처리 기간은 ${selectedCategory.estimate}입니다.`;
+  const reviewPhotoUri = blurredPhotoUri ?? photoUri;
+  const footerLabel = step < 3 ? '다음' : step === 3 ? (contentCheck && !contentCheck.passed ? '그대로 진행하고 AI 미리보기' : '점검 완료하고 AI 미리보기') : resultImageLoading ? '건너뛰고 등록하기' : '민원 등록하기';
   return (
     <Modal visible={composerOpen} animationType="slide" onRequestClose={() => setComposerOpen(false)}>
       <KeyboardAvoidingView style={[styles.composerRoot, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -146,7 +162,19 @@ export default function ReportComposer({
             <>
               <Text style={styles.stepHeading}>민원 작성 내용 점검</Text>
               <Text style={styles.stepDescription}>등록 내용과 사진의 개인정보를 확인해 주세요. 사진 블러 여부는 직접 눈으로 확인해야 해요.</Text>
-              {photoUri ? <Image source={{ uri: photoUri }} style={styles.reviewPhoto} /> : null}
+              {reviewPhotoUri ? <Image source={{ uri: reviewPhotoUri }} style={styles.reviewPhoto} /> : null}
+              {typeof faceCount === 'number' ? (
+                <Text style={[styles.privacyBody, { marginBottom: 12 }]}>{faceCount > 0 ? `사진 속 얼굴 ${faceCount}곳이 자동으로 블러 처리됐어요.` : '사진에서 감지된 얼굴이 없어요.'}</Text>
+              ) : null}
+              {contentCheck ? (
+                <View style={{ padding: 14, borderRadius: 14, marginBottom: 14, borderWidth: 1, backgroundColor: contentCheck.passed ? '#F0F5ED' : '#FFF7E8', borderColor: contentCheck.passed ? '#DCE7D9' : '#F2E0B8' }}>
+                  <Text style={styles.privacyTitle}>{contentCheck.passed ? '내용이 잘 작성됐어요' : '내용을 조금 보완하면 좋아요'}</Text>
+                  <Text style={styles.privacyBody}>{contentCheck.feedback}</Text>
+                  {!contentCheck.passed ? (
+                    <View style={{ marginTop: 10 }}><ActionButton label="내용 수정하기" secondary onPress={() => setStep(2)} /></View>
+                  ) : null}
+                </View>
+              ) : null}
               <View style={styles.privacyBox}>
                 <Text style={styles.privacyTitle}>🔍 얼굴·개인정보 블러 확인</Text>
                 <Text style={styles.privacyBody}>사진 속 사람 얼굴, 차량 번호판, 주소 등 식별 정보가 있는지 확인해 주세요. 자동 감지 기능은 아직 연결되지 않았습니다.</Text>
@@ -184,12 +212,27 @@ export default function ReportComposer({
               <View style={styles.successIcon}><AppIcon name="check" color={colors.sky} /></View>
               <Text style={[styles.stepHeading, styles.centerText]}>AI 처리 미리보기</Text>
               <Text style={[styles.stepDescription, styles.centerText]}>점검한 민원의 담당 부서와 예상 처리를 확인해요.</Text>
-              {photoUri ? <Image source={{ uri: photoUri }} style={styles.reviewPhoto} /> : null}
+              {resultImageLoading ? (
+                <View style={{ height: 190, borderRadius: 15, marginBottom: 14, backgroundColor: '#EEF0F4', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
+                  <ActivityIndicator size="large" color={colors.sky} />
+                  <Text style={[styles.privacyBody, { marginTop: 12, textAlign: 'center' }]}>AI가 처리 결과 예시 이미지를 만들고 있어요. 최대 1분 정도 걸려요. 기다리기 어려우면 건너뛰고 등록할 수 있어요.</Text>
+                </View>
+              ) : resultImage ? (
+                <View style={{ marginBottom: 14 }}>
+                  <Image source={{ uri: resultImage.url }} style={styles.reviewPhoto} />
+                  <Text style={[styles.privacyBody, { marginTop: 8 }]}>{resultImage.description}</Text>
+                  <Text style={styles.aiDisclaimer}>AI가 만든 예시 이미지예요. 실제 처리 결과와 다를 수 있어요.</Text>
+                </View>
+              ) : resultImageFailed ? (
+                <View style={[styles.localOnlyNotice, { marginBottom: 14 }]}><Text style={styles.localOnlyText}>예시 이미지를 만들지 못했어요. 이미지 없이도 등록할 수 있어요.</Text></View>
+              ) : photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.reviewPhoto} />
+              ) : null}
               <View style={styles.aiResultCard}>
-                <View style={styles.aiResultHeading}><AppIcon name="spark" color={colors.sky} /><Text style={styles.aiResultTitle}>예상 처리 결과</Text><Text style={styles.demoTag}>데모</Text></View>
+                <View style={styles.aiResultHeading}><AppIcon name="spark" color={colors.sky} /><Text style={styles.aiResultTitle}>예상 처리 결과</Text></View>
                 <Text style={styles.aiResultCopy}>{aiOutcome}</Text>
                 <View style={styles.aiResultTags}><Text style={[styles.resultTag, { color: selectedCategory.color, backgroundColor: `${selectedCategory.color}15` }]}>{selectedCategory.label}</Text><Text style={styles.resultTagNeutral}>담당 부서 안내</Text></View>
-                <Text style={styles.aiDisclaimer}>AI 연동 전 데모 예시입니다. 실제 분류·처리 기간과 다를 수 있어요.</Text>
+                <Text style={styles.aiDisclaimer}>AI가 분류한 결과는 실제 처리와 다를 수 있어요.</Text>
               </View>
               <View style={styles.reviewSummary}>
                 <Text style={styles.summaryLabel}>지역 · 제목</Text><Text style={styles.summaryValue}>{getAreaFromAddress(address)} · {title}</Text>
@@ -202,7 +245,7 @@ export default function ReportComposer({
         </ScrollView>
         <View style={styles.composerFooter}>
           <ActionButton
-            label={step < 3 ? '다음' : step === 3 ? '점검 완료하고 AI 미리보기' : '민원 등록하기'}
+            label={footerLabel}
             onPress={step < 4 ? advanceStep : submitComplaint}
           />
         </View>
