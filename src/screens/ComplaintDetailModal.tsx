@@ -1,6 +1,6 @@
 
-import { useState } from 'react';
-import { Image, Modal, Pressable, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Animated, Image, Modal, PanResponder, Pressable, Text, View } from 'react-native';
 import { getCategory } from '../domain/catalog';
 import { colors } from '../theme/colors';
 import { styles } from '../theme/appStyles';
@@ -43,6 +43,7 @@ export default function ComplaintDetailModal({
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
 
   if (!selectedComplaint) return null;
 
@@ -54,6 +55,42 @@ export default function ComplaintDetailModal({
     setEditing(false);
     setSelectedComplaint(null);
   };
+
+  // 회색 손잡이를 아래로 드래그하면 상세창 닫기
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gesture) =>
+      gesture.dy > 5 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+
+    onPanResponderMove: (_, gesture) => {
+      sheetTranslateY.setValue(Math.max(0, gesture.dy));
+    },
+
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dy > 80 || gesture.vy > 0.8) {
+        Animated.timing(sheetTranslateY, {
+          toValue: 600,
+          duration: 180,
+          useNativeDriver: true,
+        }).start(() => {
+          closeModal();
+          sheetTranslateY.setValue(0);
+        });
+      } else {
+        Animated.spring(sheetTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      }
+    },
+
+    onPanResponderTerminate: () => {
+      Animated.spring(sheetTranslateY, {
+        toValue: 0,
+        useNativeDriver: true,
+      }).start();
+    },
+  });
 
   // 서버 상세 데이터가 실제로 조회된 민원인지 확인
   const serverDetail: ComplaintDetail | null =
@@ -96,11 +133,18 @@ export default function ComplaintDetailModal({
           style={styles.modalBackdrop}
           onPress={closeModal}
         >
-          <Pressable
-            style={styles.detailSheet}
-            onPress={() => undefined}
+          <Animated.View
+            style={[
+              styles.detailSheet,
+              { transform: [{ translateY: sheetTranslateY }] },
+            ]}
           >
-            <View style={styles.sheetHandle} />
+            <View
+              {...panResponder.panHandlers}
+              style={{ height: 28, justifyContent: 'flex-start' }}
+            >
+              <View style={styles.sheetHandle} />
+            </View>
 
             {/* 민원 분류 및 상태 */}
             <View style={styles.detailCategoryRow}>
@@ -153,11 +197,11 @@ export default function ComplaintDetailModal({
               <Image
                 accessibilityLabel="민원 사진"
                 source={{ uri: imageUrl }}
-                resizeMode="cover"
+                resizeMode="contain"
                 onError={() => setImageFailed(true)}
                 style={{
                   width: '100%',
-                  height: 160,
+                  height: 320,
                   borderRadius: 14,
                   marginTop: 14,
                   backgroundColor: '#EEF0F4',
@@ -294,7 +338,7 @@ export default function ComplaintDetailModal({
               label="확인"
               onPress={closeModal}
             />
-          </Pressable>
+          </Animated.View>
 
           {/* 삭제 확인 */}
           {confirmingDelete && canModify ? (
