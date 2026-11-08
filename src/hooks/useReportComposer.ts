@@ -66,6 +66,8 @@ export function useReportComposer({
   const [title, setTitleState] = useState('');
   const [description, setDescriptionState] = useState('');
   const [address, setAddressState] = useState('');
+  // 위치는 사진 촬영 장소와 다를 수 있으므로 사용자 확인을 필수로 한다.
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
 
   const [reportCoordinate, setReportCoordinate] = useState<{
     latitude: number;
@@ -128,6 +130,8 @@ export function useReportComposer({
     if (submitInProgress.current) return;
     clearPreview();
     setAddressState(value);
+    // 주소만 바꾸면 GPS 좌표와 달라질 수 있으므로 확정을 해제한다.
+    setLocationConfirmed(false);
   }
 
   function setCategory(value: CategoryId) {
@@ -140,6 +144,7 @@ export function useReportComposer({
     if (submitInProgress.current) return;
     clearPreview();
     setPhotoUriState(value);
+    setLocationConfirmed(false); // 사진을 바꾸면 민원 발생 장소를 다시 확인
   }
 
   function setComposerOpen(value: boolean) {
@@ -191,6 +196,7 @@ export function useReportComposer({
     }
 
     setAddressState(currentAddress);
+    setLocationConfirmed(false); // 현재 GPS는 임시 위치일 뿐, 신고 위치가 아님
   }
 
   async function addPhoto(source: 'camera' | 'library') {
@@ -245,9 +251,16 @@ export function useReportComposer({
 
     if (issue) {
       Alert.alert(issue.title, issue.message);
+      return false;
     }
 
-    return !issue;
+    if (stepToCheck >= 2 && (!locationConfirmed || !reportCoordinate || !address.trim())) {
+      Alert.alert('민원 발생 위치를 확인해 주세요',
+        'GPS 또는 지도에서 실제 민원 발생 위치를 지정해 주세요. 사진을 업로드한 위치와는 다를 수 있어요.');
+      return false;
+    }
+
+    return true;
   }
 
   // API #10: 결과 이미지 생성
@@ -478,6 +491,17 @@ export function useReportComposer({
     }
   }
 
+  // 지도에서 선택한 좌표와 해당 주소를 반드시 함께 저장한다.
+  function confirmReportLocation(place: LocatedPlace) {
+    if (submitInProgress.current || previewInProgress.current) return;
+    if (!Number.isFinite(place.coordinate.latitude) ||
+        !Number.isFinite(place.coordinate.longitude) || !place.address.trim()) return;
+    clearPreview();
+    setReportCoordinate(place.coordinate);
+    setAddressState(place.address.trim());
+    setLocationConfirmed(true);
+  }
+
   async function updateReportLocation() {
     if (submitInProgress.current) return;
 
@@ -486,14 +510,12 @@ export function useReportComposer({
 
     if (version !== draftVersion.current) return;
 
-    if (place) {
-      clearPreview();
-      setReportCoordinate(place.coordinate);
-      setAddressState(place.address);
+    if (place?.address.trim()) {
+      confirmReportLocation(place);
     } else {
       Alert.alert(
         '위치를 가져오지 못했어요',
-        '위치 권한을 확인하거나 주소를 직접 입력해 주세요.',
+        '위치 권한을 확인하거나 지도에서 민원 발생 위치를 직접 지정해 주세요.',
       );
     }
   }
@@ -508,6 +530,7 @@ export function useReportComposer({
     description,
     address,
     reportCoordinate,
+    locationConfirmed,
     animalBlurConfirmed,
     hasAnimalCarcass,
     faceBlurAcknowledged,
@@ -529,6 +552,7 @@ export function useReportComposer({
     advanceStep,
     submitComplaint,
     updateReportLocation,
+    confirmReportLocation,
 
     previewLoading,
     previewError,

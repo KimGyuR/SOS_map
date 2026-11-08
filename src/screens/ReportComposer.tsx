@@ -1,5 +1,9 @@
 
 import { getAreaFromAddress } from '../domain/complaints';
+import { useRef, useState } from 'react';
+import type { MapCoordinate } from '../components/ComplaintMap.types';
+import LocationPinMap from '../components/LocationPinMap';
+import { reverseReportLocation, searchReportLocation } from '../lib/reportLocation';
 import {
   ActivityIndicator,
   Image,
@@ -33,6 +37,9 @@ type Props = Pick<
   | 'title'
   | 'description'
   | 'address'
+  | 'reportCoordinate'
+  | 'locationConfirmed'
+  | 'confirmReportLocation'
   | 'animalBlurConfirmed'
   | 'hasAnimalCarcass'
   | 'faceBlurAcknowledged'
@@ -77,6 +84,9 @@ export default function ReportComposer({
   title,
   description,
   address,
+  reportCoordinate,
+  locationConfirmed,
+  confirmReportLocation,
   animalBlurConfirmed,
   hasAnimalCarcass,
   faceBlurAcknowledged,
@@ -109,6 +119,68 @@ export default function ReportComposer({
 }: Props) {
   const insets = useSafeAreaInsets();
   const selectedCategory = getCategory(category);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pinCoordinate, setPinCoordinate] = useState<MapCoordinate | null>(null);
+  const [pinPicked, setPinPicked] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerError, setPickerError] = useState('');
+  // 검색을 연속 실행하거나 지도를 누르면 이전 검색 결과를 무시한다.
+  const locationSearchSeq = useRef(0);
+
+  function closePicker() {
+    // 검색 중 닫더라도 늦게 도착한 결과를 반영하지 않는다.
+    locationSearchSeq.current += 1;
+    setPickerBusy(false);
+    setPickerOpen(false);
+  }
+
+  function openPicker() {
+    if (!reportCoordinate || previewLoading || submitLoading) return;
+    setPinCoordinate(reportCoordinate);
+    setPinPicked(false);
+    setSearchText('');
+    setPickerError('');
+    setPickerBusy(false);
+    setPickerOpen(true);
+  }
+
+  async function searchPlace() {
+    if (!searchText.trim() || pickerBusy) return;
+    const seq = ++locationSearchSeq.current;
+    setPickerBusy(true);
+    setPickerError('');
+    try {
+      const coordinate = await searchReportLocation(searchText.trim());
+      if (seq !== locationSearchSeq.current) return;
+      setPinCoordinate(coordinate);
+      setPinPicked(false); // 검색 결과는 대략적인 중심. 지도에서 지점 재선택 필요
+    } catch (error) {
+      if (seq !== locationSearchSeq.current) return;
+      setPickerError(error instanceof Error ? error.message : '장소 검색에 실패했어요.');
+    } finally {
+      if (seq === locationSearchSeq.current) setPickerBusy(false);
+    }
+  }
+
+  async function applyPickedLocation() {
+    if (!pinCoordinate || !pinPicked || pickerBusy) return;
+    const seq = ++locationSearchSeq.current;
+    setPickerBusy(true);
+    setPickerError('');
+    try {
+      const addressAtPin = await reverseReportLocation(pinCoordinate);
+      if (seq !== locationSearchSeq.current) return;
+      confirmReportLocation({ coordinate: pinCoordinate, address: addressAtPin });
+      setPickerOpen(false);
+    } catch (error) {
+      if (seq !== locationSearchSeq.current) return;
+      setPickerError(error instanceof Error ? error.message : '주소를 확인하지 못했어요. 다시 선택해 주세요.');
+    } finally {
+      if (seq === locationSearchSeq.current) setPickerBusy(false);
+    }
+  }
+
 
   // API #9 서버 결과 우선 사용
   const agency = previewAgency ?? selectedCategory.agency;
@@ -137,6 +209,7 @@ export default function ReportComposer({
               : '민원 등록하기';
 
   return (
+    <>
     <Modal
       visible={composerOpen}
       animationType="slide"
@@ -367,24 +440,37 @@ export default function ReportComposer({
                 {description.length}/300
               </Text>
 
-              <Text style={styles.inputLabel}>위치</Text>
-
+              <Text style={styles.inputLabel}>민원 발생 위치</Text>
+              <Text style={[styles.privacyBody, { marginBottom: 9 }]}>
+                사진을 촬영한 곳과 업로드하는 곳이 다를 수 있어요. 문제가 발생한 위치를 지정해 주세요.
+              </Text>
               <View style={styles.addressRow}>
                 <TextInput
                   style={[styles.textInput, styles.addressInput]}
-                  placeholder="주소를 입력해 주세요"
+                  placeholder="GPS 또는 지도에서 위치를 선택해 주세요"
                   value={address}
-                  onChangeText={setAddress}
-                  maxLength={255}
+                  editable={false}
                 />
-
                 <Pressable
                   style={styles.gpsButton}
                   onPress={() => void updateReportLocation()}
+                  disabled={previewLoading || submitLoading}
                 >
                   <Text style={styles.gpsButtonText}>GPS</Text>
                 </Pressable>
               </View>
+              <View style={{ marginTop: 9 }}>
+                <ActionButton
+                  label="지도에서 민원 발생 위치 지정"
+                  secondary
+                  onPress={openPicker}
+                />
+              </View>
+              <Text style={[styles.privacyBody, { marginTop: 8, color: locationConfirmed ? '#336A49' : '#A45F18' }]}>
+                {locationConfirmed
+                  ? '위치 확인 완료 · 아래 내용으로 AI 분석 및 민원이 등록돼요.'
+                  : '아직 위치를 확정하지 않았어요. GPS 또는 지도에서 선택해야 다음 단계로 진행할 수 있어요.'}
+              </Text>
             </>
           ) : null}
 
@@ -790,5 +876,76 @@ export default function ReportComposer({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+
+    {/* 장소 검색 후 지도를 눌러 정확한 민원 발생 위치 확정 */}
+    <Modal
+      visible={pickerOpen}
+      animationType="slide"
+      onRequestClose={closePicker}
+    >
+      <View style={{ flex: 1, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, backgroundColor: '#FFFFFF' }}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+          <Text style={styles.stepHeading}>민원 발생 위치 선택</Text>
+          <Text style={styles.privacyBody}>
+            지역을 검색해 이동하거나 지도를 움직인 다음, 실제 문제가 발생한 지점을 눌러 주세요.
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <TextInput
+              style={[styles.textInput, { flex: 1, marginBottom: 0 }]}
+              placeholder="예: 대구 수성구 범어동"
+              value={searchText}
+              onChangeText={setSearchText}
+              onSubmitEditing={() => void searchPlace()}
+              returnKeyType="search"
+            />
+            <Pressable
+              style={[styles.gpsButton, { paddingHorizontal: 16, paddingVertical: 12 }]}
+              onPress={() => void searchPlace()}
+              disabled={pickerBusy}
+            >
+              <Text style={styles.gpsButtonText}>검색</Text>
+            </Pressable>
+          </View>
+        </View>
+        <View style={{ flex: 1, minHeight: 270, marginHorizontal: 16, borderRadius: 12, overflow: 'hidden', backgroundColor: '#EAF2F7' }}>
+          {pinCoordinate ? (
+            <LocationPinMap
+              coordinate={pinCoordinate}
+              onPress={(coordinate) => {
+                locationSearchSeq.current += 1;
+                setPinCoordinate(coordinate);
+                setPinPicked(true);
+                setPickerError('');
+                setPickerBusy(false);
+              }}
+            />
+          ) : null}
+        </View>
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 8 }}>
+          <Text style={styles.privacyBody}>
+            {pinPicked && pinCoordinate
+              ? `선택한 위치: ${pinCoordinate.latitude.toFixed(6)}, ${pinCoordinate.longitude.toFixed(6)}`
+              : '검색만으로는 위치가 확정되지 않아요. 지도에서 정확한 지점을 한 번 눌러 주세요.'}
+          </Text>
+          {pickerError ? (
+            <Text accessibilityRole="alert" style={{ color: '#C34242' }}>{pickerError}</Text>
+          ) : null}
+          {pickerBusy ? <ActivityIndicator color={colors.sky} /> : null}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <ActionButton label="취소" secondary onPress={closePicker} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ActionButton
+                label={pickerBusy ? '주소 확인 중...' : '이 위치로 확정'}
+                disabled={!pinPicked || pickerBusy}
+                onPress={() => void applyPickedLocation()}
+              />
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
