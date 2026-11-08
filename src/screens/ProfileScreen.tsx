@@ -1,4 +1,3 @@
-
 import { ScrollView, Text, View } from 'react-native';
 import { styles } from '../theme/appStyles';
 import ActionButton from '../components/ActionButton';
@@ -11,8 +10,7 @@ type Props = Pick<
   | 'currentAccount'
   | 'loginId'
   | 'signOut'
-  | 'likedComplaintIds'
-  | 'toggleLike'
+  | 'toggleServerLike'
   | 'setSelectedComplaint'
   | 'myPage'
   | 'myPageLoading'
@@ -23,8 +21,7 @@ export default function ProfileScreen({
   currentAccount,
   loginId,
   signOut,
-  likedComplaintIds,
-  toggleLike,
+  toggleServerLike,
   setSelectedComplaint,
   myPage,
   myPageLoading,
@@ -113,12 +110,10 @@ export default function ProfileScreen({
         <ComplaintCard
           key={item.id}
           item={item}
-          liked={
-            myPage?.likedIds.has(item.id) ??
-            likedComplaintIds.has(item.id)
-          }
+          liked={myPage?.likedIds.has(item.id) ?? false}
           onSelect={setSelectedComplaint}
-          onToggleLike={toggleLike}
+          // 로컬 토글 대신 서버 POST / DELETE 공감 API 호출
+          onToggleLike={(id) => void toggleServerLike(id)}
         />
       ))}
 

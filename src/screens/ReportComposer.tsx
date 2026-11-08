@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { CATEGORIES, FESTIVALS, getCategory } from '../domain/catalog';
+import { CATEGORIES, getCategory } from '../domain/catalog';
 import { colors } from '../theme/colors';
 import { styles } from '../theme/appStyles';
 import AppIcon from '../components/AppIcon';
@@ -23,6 +23,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 type Props = Pick<
   AppModel,
   | 'selectedFestival'
+  | 'serverFestivals'
+  | 'festivalsLoading'
+  | 'festivalsError'
   | 'composerOpen'
   | 'step'
   | 'photoUri'
@@ -48,6 +51,7 @@ type Props = Pick<
   | 'advanceStep'
   | 'submitComplaint'
   | 'updateReportLocation'
+  | 'submitLoading'
   | 'contentCheck'
   | 'blurredPhotoUri'
   | 'faceCount'
@@ -63,6 +67,9 @@ type Props = Pick<
 
 export default function ReportComposer({
   selectedFestival,
+  serverFestivals,
+  festivalsLoading,
+  festivalsError,
   composerOpen,
   step,
   photoUri,
@@ -88,6 +95,7 @@ export default function ReportComposer({
   advanceStep,
   submitComplaint,
   updateReportLocation,
+  submitLoading,
   contentCheck,
   blurredPhotoUri,
   faceCount,
@@ -123,8 +131,10 @@ export default function ReportComposer({
         : step === 3
           ? 'AI 미리보기 확인'
           : resultImageLoading
-            ? '건너뛰고 등록하기'
-            : '민원 등록하기';
+            ? 'AI 이미지 생성 중...'
+            : submitLoading
+              ? '민원 등록 중...'
+              : '민원 등록하기';
 
   return (
     <Modal
@@ -298,7 +308,7 @@ export default function ReportComposer({
                   <Text style={styles.inputLabel}>관련 축제</Text>
 
                   <View style={styles.festivalSelectBox}>
-                    {FESTIVALS.filter((item) => item.active).map(
+                    {serverFestivals.filter((item) => item.active).map(
                       (festival) => (
                         <Pressable
                           key={festival.name}
@@ -321,6 +331,13 @@ export default function ReportComposer({
                       ),
                     )}
                   </View>
+                  {festivalsLoading ? (
+                    <Text style={styles.privacyBody}>서버 축제 목록을 불러오고 있어요.</Text>
+                  ) : festivalsError ? (
+                    <Text style={styles.privacyBody}>축제 목록 오류: {festivalsError}</Text>
+                  ) : !serverFestivals.some((item) => item.active) ? (
+                    <Text style={styles.privacyBody}>현재 신고할 수 있는 진행 중 축제가 없어요.</Text>
+                  ) : null}
                 </>
               ) : null}
 
@@ -752,8 +769,7 @@ export default function ReportComposer({
 
               <View style={styles.localOnlyNotice}>
                 <Text style={styles.localOnlyText}>
-                  AI 미리보기는 서버에서 분석하지만,
-                  실제 민원 등록은 아직 데모 방식이에요.
+                  AI 분석은 참고용이며, 등록 버튼을 누르면 서버에 실제 민원이 저장돼요.
                 </Text>
               </View>
             </>
@@ -764,7 +780,7 @@ export default function ReportComposer({
         <View style={styles.composerFooter}>
           <ActionButton
             label={footerLabel}
-            disabled={previewLoading}
+            disabled={previewLoading || submitLoading || (step === 4 && resultImageLoading)}
             onPress={
               step < 4
                 ? advanceStep

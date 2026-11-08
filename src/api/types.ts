@@ -134,7 +134,7 @@ export type ComplaintPreviewDto = {
   agency: string;
   estimatedPeriod: string;
   area: string;
-  contentCheck: {
+  contentCheck?: {
     passed: boolean;
     feedback: string;
   };

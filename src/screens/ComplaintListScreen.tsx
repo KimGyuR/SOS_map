@@ -31,6 +31,7 @@ type Props = Pick<
   | 'listPage'
   | 'setListPage'
   | 'selectServerComplaint'
+  | 'toggleServerLike'
 >;
 
 type StatusFilter = 'all' | ComplaintStatus;
@@ -70,6 +71,7 @@ export default function ComplaintListScreen({
   listPage,
   setListPage,
   selectServerComplaint,
+  toggleServerLike,
 }: Props) {
   return (
     <ScrollView
@@ -205,8 +207,8 @@ export default function ComplaintListScreen({
             // API #8 민원 상세 조회
             onSelect={selectServerComplaint}
 
-            // API #12·#13 연결 전까지 공감 변경 비활성화
-            onToggleLike={() => undefined}
+            // API #12·#13: 서버 공감 등록 및 취소
+            onToggleLike={(id) => void toggleServerLike(id)}
           />
         ))
       ) : (

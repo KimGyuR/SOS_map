@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CATEGORIES, FESTIVALS } from '../domain/catalog';
+import { CATEGORIES } from '../domain/catalog';
+import type { ServerFestival } from '../api/festivals';
 import type { CategoryId, Complaint } from '../domain/types';
 import { colors } from '../theme/colors';
 import { styles } from '../theme/appStyles';
@@ -22,11 +23,12 @@ export type ComplaintEditChanges = {
 
 type Props = {
   complaint: Complaint;
+  festivals: ServerFestival[];
   onClose: () => void;
-  onSave?: (changes: ComplaintEditChanges) => void;
+  onSave: (changes: ComplaintEditChanges) => Promise<void>;
 };
 
-export default function ComplaintEditModal({ complaint, onClose, onSave }: Props) {
+export default function ComplaintEditModal({ complaint, festivals, onClose, onSave }: Props) {
   const insets = useSafeAreaInsets();
   // 임시: 아직 타입에 imageUrl이 없어서 이렇게 읽음. 서버 연결 후 complaint.imageUrl로 교체
   const originalImageUrl = (complaint as { imageUrl?: string }).imageUrl;
@@ -40,6 +42,7 @@ export default function ComplaintEditModal({ complaint, onClose, onSave }: Props
   const [containsAnimalCarcass, setContainsAnimalCarcass] = useState(false);
   const [animalBlurConfirmed, setAnimalBlurConfirmed] = useState(false);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const shownPhoto = newPhotoUri ?? originalImageUrl;
 
@@ -58,9 +61,12 @@ export default function ComplaintEditModal({ complaint, onClose, onSave }: Props
     }
   };
 
-  const save = () => {
+  const save = async () => {
+    if (saving) return;
     if (!title.trim()) return setError('제목을 입력해 주세요.');
-    if (category === 'festival' && !festival) return setError('관련 축제를 선택해 주세요.');
+    if (category === 'festival' && festival !== (complaint.festival ?? '') && !festivals.some((item) => item.name === festival && item.active)) {
+      return setError('서버에서 조회된 진행 중 축제를 선택해 주세요.');
+    }
     if (newPhotoUri && !faceBlurConfirmed) return setError('새 사진의 얼굴·개인정보 블러를 확인해 주세요.');
     if (newPhotoUri && containsAnimalCarcass && !animalBlurConfirmed) return setError('동물 사체 사진은 직접 가림 처리한 뒤 확인해 주세요.');
     const changes: ComplaintEditChanges = {};
@@ -75,14 +81,21 @@ export default function ComplaintEditModal({ complaint, onClose, onSave }: Props
     }
     if (!Object.keys(changes).length) return setError('바뀐 내용이 없어요.');
     setError('');
-    onSave?.(changes);
+    setSaving(true);
+    try {
+      await onSave(changes);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '민원을 수정하지 못했어요.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
+    <Modal visible animationType="slide" onRequestClose={() => { if (!saving) onClose(); }}>
       <KeyboardAvoidingView style={[styles.composerRoot, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.composerHeader}>
-          <Pressable accessibilityRole="button" accessibilityLabel="수정 닫기" onPress={onClose}><AppIcon name="close" /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="수정 닫기" onPress={() => { if (!saving) onClose(); }} disabled={saving}><AppIcon name="close" /></Pressable>
           <Text style={styles.composerTitle}>민원 수정</Text>
           <Text style={styles.stepCounter}> </Text>
         </View>
@@ -131,7 +144,7 @@ export default function ComplaintEditModal({ complaint, onClose, onSave }: Props
             <>
               <Text style={styles.inputLabel}>관련 축제</Text>
               <View style={styles.festivalSelectBox}>
-                {FESTIVALS.filter((item) => item.active).map((item) => (
+                {festivals.filter((item) => item.active).map((item) => (
                   <Pressable key={item.name} style={styles.festivalSelectRow} onPress={() => setFestival(item.name)}>
                     <View style={[styles.radio, festival === item.name && styles.radioSelected]} />
                     <Text style={styles.festivalSelectText}>{item.name}</Text>
@@ -147,12 +160,13 @@ export default function ComplaintEditModal({ complaint, onClose, onSave }: Props
           <Text style={styles.characterCount}>{description.length}/300</Text>
           <Text style={styles.inputLabel}>위치</Text>
           <TextInput style={styles.textInput} value={address} onChangeText={setAddress} />
+          <Text style={[styles.privacyBody, { marginTop: 7 }]}>주소를 변경해도 지도 좌표는 이전 위치로 유지돼요. 좌표까지 변경하려면 새 민원을 등록해 주세요.</Text>
           {error ? <Text accessibilityRole="alert" style={{ color: '#D84848', fontSize: 12, marginTop: 12 }}>{error}</Text> : null}
         </ScrollView>
         <View style={styles.composerFooter}>
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}><ActionButton label="취소" secondary onPress={onClose} /></View>
-            <View style={{ flex: 1 }}><ActionButton label="저장" onPress={save} /></View>
+            <View style={{ flex: 1 }}><ActionButton label="취소" secondary onPress={onClose} disabled={saving} /></View>
+            <View style={{ flex: 1 }}><ActionButton label={saving ? "저장 중..." : "저장"} onPress={() => void save()} disabled={saving} /></View>
           </View>
         </View>
       </KeyboardAvoidingView>

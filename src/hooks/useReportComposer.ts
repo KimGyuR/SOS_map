@@ -1,7 +1,6 @@
 
 import { validateReport } from '../domain/validation';
-import * as Crypto from 'expo-crypto';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { CategoryId, Complaint } from '../domain/types';
@@ -9,11 +8,12 @@ import type {
   MapCoordinate,
   MapRegion,
 } from '../components/ComplaintMap.types';
-import { FESTIVALS } from '../domain/catalog';
-import { getAreaFromAddress } from '../domain/complaints';
+import type { ServerFestival } from '../api/festivals';
 import type { LocatedPlace } from '../lib/currentLocation';
 import { uploadImage } from '../api/images';
 import {
+  createComplaint,
+  createResultImage,
   previewComplaint,
   type ComplaintPreview,
 } from '../api/complaints';
@@ -24,6 +24,13 @@ type Options = {
   currentAddress: string;
   locateUser: () => Promise<LocatedPlace | null>;
   onSubmit: (complaint: Complaint) => void;
+  festivals: ServerFestival[];
+};
+
+type ResultImage = {
+  id: number;
+  url: string;
+  description: string;
 };
 
 export function useReportComposer({
@@ -32,23 +39,33 @@ export function useReportComposer({
   currentAddress,
   locateUser,
   onSubmit,
+  festivals,
 }: Options) {
   const submitted = useRef(false);
+  const submitInProgress = useRef(false);
   const draftVersion = useRef(0);
-
-  // 중복 API 요청 방지
   const previewInProgress = useRef(false);
+  const resultImageInProgress = useRef(false);
 
-  const [selectedFestival, setSelectedFestival] = useState(
-    FESTIVALS[0].name,
-  );
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [step, setStep] = useState(1);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [category, setCategory] = useState<CategoryId>('road');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [address, setAddress] = useState('');
+  const [selectedFestival, setSelectedFestival] = useState('');
+
+  // 서버에 실제 존재하는 활성 축제로 선택을 동기화
+  useEffect(() => {
+    const current = festivals.find((item) => item.name === selectedFestival && item.active);
+    if (!current) {
+      setSelectedFestival(festivals.find((item) => item.active)?.name ?? '');
+    }
+  }, [festivals, selectedFestival]);
+
+  const selectedFestivalId =
+    festivals.find((item) => item.name === selectedFestival && item.active)?.id ?? null;
+  const [composerOpen, setComposerOpenState] = useState(false);
+  const [step, setStepState] = useState(1);
+  const [photoUri, setPhotoUriState] = useState<string | null>(null);
+  const [category, setCategoryState] = useState<CategoryId>('road');
+  const [title, setTitleState] = useState('');
+  const [description, setDescriptionState] = useState('');
+  const [address, setAddressState] = useState('');
 
   const [reportCoordinate, setReportCoordinate] = useState<{
     latitude: number;
@@ -60,11 +77,20 @@ export function useReportComposer({
   const [faceBlurAcknowledged, setFaceBlurAcknowledged] =
     useState(false);
 
-  // API #9 AI 미리보기 결과
+  // API #9
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [previewResult, setPreviewResult] =
     useState<ComplaintPreview | null>(null);
+
+  // API #10
+  const [resultImage, setResultImage] =
+    useState<ResultImage | null>(null);
+  const [resultImageLoading, setResultImageLoading] = useState(false);
+  const [resultImageFailed, setResultImageFailed] = useState(false);
+
+  // API #11
+  const [submitLoading, setSubmitLoading] = useState(false);
 
   const contentCheck = previewResult?.contentCheck ?? null;
   const blurredPhotoUri =
@@ -74,24 +100,80 @@ export function useReportComposer({
   const previewEstimatedPeriod =
     previewResult?.estimatedPeriod ?? null;
 
-  // 기존 미리보기 결과 초기화
   function clearPreview() {
     draftVersion.current += 1;
+
     setPreviewResult(null);
     setPreviewError('');
     setPreviewLoading(false);
+
+    setResultImage(null);
+    setResultImageLoading(false);
+    setResultImageFailed(false);
+  }
+
+  function setTitle(value: string) {
+    if (submitInProgress.current) return;
+    clearPreview();
+    setTitleState(value);
+  }
+
+  function setDescription(value: string) {
+    if (submitInProgress.current) return;
+    clearPreview();
+    setDescriptionState(value);
+  }
+
+  function setAddress(value: string) {
+    if (submitInProgress.current) return;
+    clearPreview();
+    setAddressState(value);
+  }
+
+  function setCategory(value: CategoryId) {
+    if (submitInProgress.current) return;
+    clearPreview();
+    setCategoryState(value);
+  }
+
+  function setPhotoUri(value: string | null) {
+    if (submitInProgress.current) return;
+    clearPreview();
+    setPhotoUriState(value);
+  }
+
+  function setComposerOpen(value: boolean) {
+    if (submitInProgress.current && !value) return;
+
+    if (!value) {
+      clearPreview();
+    }
+
+    setComposerOpenState(value);
+  }
+
+  function setStep(value: number) {
+    if (submitInProgress.current) return;
+
+    if (value < 3 && step >= 3) {
+      clearPreview();
+    }
+
+    setStepState(value);
   }
 
   function openComposer(forFestival = false) {
+    if (submitInProgress.current) return;
+
     submitted.current = false;
     clearPreview();
 
-    setComposerOpen(true);
-    setStep(1);
-    setPhotoUri(null);
-    setTitle('');
-    setDescription('');
-    setCategory(forFestival ? 'festival' : 'road');
+    setComposerOpenState(true);
+    setStepState(1);
+    setPhotoUriState(null);
+    setTitleState('');
+    setDescriptionState('');
+    setCategoryState(forFestival ? 'festival' : 'road');
 
     setReportCoordinate(
       userCoordinate ?? {
@@ -104,17 +186,16 @@ export function useReportComposer({
     setHasAnimalCarcass(false);
     setFaceBlurAcknowledged(false);
 
-    if (!forFestival) {
-      setSelectedFestival(
-        FESTIVALS.find((item) => item.active)?.name ??
-          FESTIVALS[0].name,
-      );
+    if (!forFestival || !festivals.some((item) => item.name === selectedFestival && item.active)) {
+      setSelectedFestival(festivals.find((item) => item.active)?.name ?? '');
     }
 
-    setAddress(currentAddress);
+    setAddressState(currentAddress);
   }
 
   async function addPhoto(source: 'camera' | 'library') {
+    if (submitInProgress.current) return;
+
     const version = draftVersion.current;
 
     try {
@@ -136,8 +217,6 @@ export function useReportComposer({
         !result.canceled &&
         result.assets[0]?.uri
       ) {
-        clearPreview();
-
         setPhotoUri(result.assets[0].uri);
         setAnimalBlurConfirmed(false);
         setHasAnimalCarcass(false);
@@ -164,13 +243,58 @@ export function useReportComposer({
       stepToCheck,
     );
 
-    if (issue) Alert.alert(issue.title, issue.message);
+    if (issue) {
+      Alert.alert(issue.title, issue.message);
+    }
+
     return !issue;
   }
 
-  // API #14 사진 업로드 → API #9 AI 미리보기
+  // API #10: 결과 이미지 생성
+  async function requestResultImage(
+    preview: ComplaintPreview,
+    version: number,
+  ) {
+    if (resultImageInProgress.current) return;
+
+    resultImageInProgress.current = true;
+    setResultImage(null);
+    setResultImageLoading(true);
+    setResultImageFailed(false);
+
+    try {
+      const response = await createResultImage({
+        blurredImageId: preview.image.blurredImageId,
+        category,
+        title,
+        description,
+      });
+
+      if (version !== draftVersion.current) return;
+
+      // API #11에서 사용할 이미지 ID도 보관
+      setResultImage({
+        id: response.resultImageId,
+        url: response.resultImageUrl,
+        description: response.description,
+      });
+    } catch (error) {
+      if (version !== draftVersion.current) return;
+
+      setResultImageFailed(true);
+      console.warn('AI 결과 이미지 생성 실패:', error);
+    } finally {
+      resultImageInProgress.current = false;
+
+      if (version === draftVersion.current) {
+        setResultImageLoading(false);
+      }
+    }
+  }
+
+  // API #14 → API #9 → API #10
   async function requestAiPreview() {
-    if (previewInProgress.current) return;
+    if (previewInProgress.current || submitInProgress.current) return;
     if (!validate(3)) return;
 
     if (!photoUri) {
@@ -178,11 +302,10 @@ export function useReportComposer({
       return;
     }
 
-    // 서버 축제 ID가 아직 연결되지 않았으므로 잘못된 요청 방지
-    if (category === 'festival') {
+    if (category === 'festival' && selectedFestivalId === null) {
       Alert.alert(
-        '축제 정보 연결이 필요해요',
-        '축제 민원 AI 미리보기는 서버 축제 목록 연결 후 사용할 수 있어요.',
+        '축제를 선택해 주세요',
+        '서버에서 조회한 진행 중 축제가 필요해요. 축제 목록을 확인해 주세요.',
       );
       return;
     }
@@ -193,6 +316,9 @@ export function useReportComposer({
     setPreviewLoading(true);
     setPreviewError('');
     setPreviewResult(null);
+    setResultImage(null);
+    setResultImageLoading(false);
+    setResultImageFailed(false);
 
     try {
       const coordinate = reportCoordinate ?? {
@@ -200,13 +326,13 @@ export function useReportComposer({
         longitude: region.longitude,
       };
 
-      // 1. API #14: 사진을 서버에 업로드
+      // API #14: 사진 업로드
       const uploadedImage = await uploadImage(photoUri);
 
       if (version !== draftVersion.current) return;
 
-      // 2. API #9: 업로드된 imageId로 AI 분석 요청
-      const result = await previewComplaint({
+      // API #9: 얼굴 블러 및 AI 미리보기 (내용 검사 필드는 선택적)
+      const preview = await previewComplaint({
         imageId: uploadedImage.imageId,
         category,
         title,
@@ -214,24 +340,25 @@ export function useReportComposer({
         address,
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
-        festivalId: null,
+        festivalId: category === 'festival' ? selectedFestivalId : null,
       });
 
       if (version !== draftVersion.current) return;
 
-      setPreviewResult(result);
+      setPreviewResult(preview);
 
-      // 내용 검사를 통과하지 못하면 3단계에서 수정하도록 유지
-      if (!result.contentCheck.passed) {
+      if (preview.contentCheck?.passed === false) {
         Alert.alert(
           '민원 내용을 확인해 주세요',
-          result.contentCheck.feedback,
+          preview.contentCheck.feedback,
         );
         return;
       }
 
-      // 검사 통과 시 AI 미리보기 화면으로 이동
-      setStep(4);
+      setStepState(4);
+
+      // API #10은 별도로 실행해 4단계에서 로딩 표시
+      void requestResultImage(preview, version);
     } catch (error) {
       if (version !== draftVersion.current) return;
 
@@ -252,24 +379,24 @@ export function useReportComposer({
   }
 
   function advanceStep() {
-    if (previewInProgress.current) return;
+    if (previewInProgress.current || submitInProgress.current) return;
 
-    // 3단계에서 API #9 실행
     if (step === 3) {
       void requestAiPreview();
       return;
     }
 
     if (validate(step)) {
-      setStep((current) => Math.min(4, current + 1));
+      setStepState((current) => Math.min(4, current + 1));
     }
   }
 
-  function submitComplaint() {
-    if (submitted.current || !validate(4)) return;
+  // API #11: 실제 서버에 민원 등록
+  async function submitComplaint() {
+    if (submitted.current || submitInProgress.current) return;
+    if (!validate(4)) return;
 
-    // API #9 내용 검사 통과 여부 확인
-    if (!previewResult?.contentCheck.passed) {
+    if (!previewResult || previewResult.contentCheck?.passed === false) {
       Alert.alert(
         'AI 점검이 필요해요',
         'AI 미리보기를 완료한 후 등록해 주세요.',
@@ -277,42 +404,83 @@ export function useReportComposer({
       return;
     }
 
-    submitted.current = true;
+    // 결과 이미지 생성 중이면 완료 후 등록하도록 안내
+    if (resultImageInProgress.current || resultImageLoading) {
+      Alert.alert(
+        'AI 이미지 생성 중',
+        '예상 결과 이미지 생성이 완료되면 등록해 주세요.',
+      );
+      return;
+    }
 
-    const coordinate = reportCoordinate ?? {
-      latitude: region.latitude,
-      longitude: region.longitude,
-    };
+    submitInProgress.current = true;
+    setSubmitLoading(true);
 
-    // 현재 등록은 기존 로컬 데모 방식 유지
-    // 실제 서버 등록은 API #11 연결 시 변경
-    const newComplaint: Complaint = {
-      id: Crypto.randomUUID(),
-      title: title.trim(),
-      address: address.trim() || '위치 정보 없음',
-      area: getAreaFromAddress(address),
-      category,
-      status: '접수',
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      createdAt: '방금 전',
-      description: description.trim(),
-      likeCount: 0,
-      ...(category === 'festival'
-        ? { festival: selectedFestival }
-        : {}),
-    };
+    const version = draftVersion.current;
 
-    onSubmit(newComplaint);
-    setComposerOpen(false);
+    try {
+      const coordinate = reportCoordinate ?? {
+        latitude: region.latitude,
+        longitude: region.longitude,
+      };
 
-    Alert.alert(
-      '민원 작성 완료',
-      'AI 미리보기는 서버에서 처리했지만, 민원 등록은 아직 데모 방식이에요. 실제 서버 등록은 API #11 연결 후 가능합니다.',
-    );
+      const createdComplaint = await createComplaint({
+        // API #9에서 받은 블러 이미지 ID
+        imageId: previewResult.image.blurredImageId,
+
+        // API #10 실패 또는 건너뛰기 시 null
+        resultImageId: resultImage?.id ?? null,
+
+        category,
+        title,
+        description,
+        address,
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        festivalId: category === 'festival' ? selectedFestivalId : null,
+
+        privacyCheck: {
+          faceBlurConfirmed: faceBlurAcknowledged,
+          containsAnimalCarcass: hasAnimalCarcass,
+          animalBlurConfirmed: animalBlurConfirmed,
+        },
+      });
+
+      if (version !== draftVersion.current) return;
+
+      submitted.current = true;
+
+      // 서버에서 생성된 complaintId와 실제 데이터를 지도/목록에 반영
+      onSubmit(createdComplaint);
+
+      clearPreview();
+      setComposerOpenState(false);
+
+      Alert.alert(
+        '민원 등록 완료',
+        '민원이 서버에 정상적으로 등록되었어요.',
+      );
+    } catch (error) {
+      if (version !== draftVersion.current) return;
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : '민원 등록 중 오류가 발생했어요.';
+
+      Alert.alert(
+        '민원 등록 실패',
+        `${message}\n\n작성 내용은 유지되므로 다시 시도할 수 있어요.`,
+      );
+    } finally {
+      submitInProgress.current = false;
+      setSubmitLoading(false);
+    }
   }
 
   async function updateReportLocation() {
+    if (submitInProgress.current) return;
+
     const version = draftVersion.current;
     const place = await locateUser();
 
@@ -321,7 +489,7 @@ export function useReportComposer({
     if (place) {
       clearPreview();
       setReportCoordinate(place.coordinate);
-      setAddress(place.address);
+      setAddressState(place.address);
     } else {
       Alert.alert(
         '위치를 가져오지 못했어요',
@@ -362,7 +530,6 @@ export function useReportComposer({
     submitComplaint,
     updateReportLocation,
 
-    // API #9 결과를 ReportComposer.tsx에 전달
     previewLoading,
     previewError,
     previewResult,
@@ -371,5 +538,11 @@ export function useReportComposer({
     faceCount,
     previewAgency,
     previewEstimatedPeriod,
+
+    resultImage,
+    resultImageLoading,
+    resultImageFailed,
+
+    submitLoading,
   };
 }

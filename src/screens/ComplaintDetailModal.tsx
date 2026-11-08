@@ -22,9 +22,10 @@ type Props = Pick<
   | 'selectedComplaint'
   | 'setSelectedComplaint'
   | 'serverSelectedComplaint'
+  | 'serverFestivals'
 > & {
-  onSaveEdit?: (id: string, changes: ComplaintEditChanges) => void;
-  onDelete?: (id: string) => void;
+  onSaveEdit: (id: string, changes: ComplaintEditChanges) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 };
 
 export default function ComplaintDetailModal({
@@ -33,17 +34,22 @@ export default function ComplaintDetailModal({
   selectedComplaint,
   setSelectedComplaint,
   serverSelectedComplaint,
+  serverFestivals,
   onSaveEdit,
   onDelete,
 }: Props) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   if (!selectedComplaint) return null;
 
   const closeModal = () => {
+    if (deleting) return;
     setConfirmingDelete(false);
+    setDeleteError('');
     setImageFailed(false);
     setEditing(false);
     setSelectedComplaint(null);
@@ -61,7 +67,7 @@ export default function ComplaintDetailModal({
   const canModify =
     isMine &&
     selectedComplaint.status === '접수' &&
-    Boolean(onSaveEdit && onDelete);
+    !deleting;
 
   // 서버 상세 응답의 사진·담당 부서·처리 기간 사용
   const imageUrl = serverDetail?.imageUrl;
@@ -75,7 +81,7 @@ export default function ComplaintDetailModal({
     ? serverDetail.liked
     : likedComplaintIds.has(selectedComplaint.id);
 
-  // 서버 민원 공감은 API #12·#13 연결 전까지 비활성화
+  // 공감 기능은 서버 상세 모달보다 지도/목록의 공감 버튼에서 처리한다.
   const canToggleLike = !serverDetail;
 
   return (
@@ -340,21 +346,37 @@ export default function ComplaintDetailModal({
                   삭제한 민원은 되돌릴 수 없어요.
                 </Text>
 
+                {deleteError ? (
+                  <Text accessibilityRole="alert" style={{ color: '#D84848', marginBottom: 12 }}>{deleteError}</Text>
+                ) : null}
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <ActionButton
                       label="취소"
                       secondary
+                      disabled={deleting}
                       onPress={() => setConfirmingDelete(false)}
                     />
                   </View>
 
                   <View style={{ flex: 1 }}>
                     <ActionButton
-                      label="삭제하기"
+                      label={deleting ? '삭제 중...' : '삭제하기'}
+                      disabled={deleting}
                       onPress={() => {
-                        onDelete?.(selectedComplaint.id);
-                        closeModal();
+                        if (deleting) return;
+                        setDeleting(true);
+                        setDeleteError('');
+                        void onDelete(selectedComplaint.id)
+                          .then(() => {
+                            setDeleting(false);
+                            setConfirmingDelete(false);
+                            closeModal();
+                          })
+                          .catch((error) => {
+                            setDeleteError(error instanceof Error ? error.message : '민원을 삭제하지 못했어요.');
+                            setDeleting(false);
+                          });
                       }}
                     />
                   </View>
@@ -368,10 +390,11 @@ export default function ComplaintDetailModal({
       {/* 민원 수정 */}
       {editing && canModify ? (
         <ComplaintEditModal
-          complaint={selectedComplaint}
+          complaint={serverDetail ?? selectedComplaint}
+          festivals={serverFestivals}
           onClose={() => setEditing(false)}
-          onSave={(changes) => {
-            onSaveEdit?.(selectedComplaint.id, changes);
+          onSave={async (changes) => {
+            await onSaveEdit(selectedComplaint.id, changes);
             setEditing(false);
           }}
         />

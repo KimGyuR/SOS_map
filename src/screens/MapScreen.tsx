@@ -32,6 +32,7 @@ type Props = Pick<
   | 'nearbyError'
   | 'selectServerComplaint'
   | 'selectServerComplaintById'
+  | 'toggleServerLike'
 >;
 
 export default function MapScreen({
@@ -52,6 +53,7 @@ export default function MapScreen({
   nearbyError,
   selectServerComplaint,
   selectServerComplaintById,
+  toggleServerLike,
 }: Props) {
   return (
     <ScrollView
@@ -110,7 +112,6 @@ export default function MapScreen({
           onRegionChangeComplete={setRegion}
           complaints={serverMapComplaints}
           userCoordinate={userCoordinate}
-          // API #8: 지도 마커 클릭 시 서버 상세 조회
           onComplaintPress={(id) => {
             void selectServerComplaintById(id);
           }}
@@ -166,9 +167,7 @@ export default function MapScreen({
           </Text>
         </Text>
 
-        <Pressable
-          onPress={() => navigateToScreen('list')}
-        >
+        <Pressable onPress={() => navigateToScreen('list')}>
           <Text style={styles.moreLink}>
             전체 보기 ›
           </Text>
@@ -179,10 +178,7 @@ export default function MapScreen({
       <View style={styles.nearbyContent}>
         {nearbyLoading ? (
           <View style={{ paddingVertical: 20 }}>
-            <ActivityIndicator
-              size="small"
-              color={colors.sky}
-            />
+            <ActivityIndicator size="small" color={colors.sky} />
 
             <Text style={styles.emptyText}>
               주변 민원을 불러오는 중...
@@ -202,8 +198,8 @@ export default function MapScreen({
               // API #8: 카드 클릭 시 서버 상세 조회
               onSelect={selectServerComplaint}
 
-              // API #12·#13 연결 전까지 공감 변경 비활성화
-              onToggleLike={() => undefined}
+              // API #12·#13: 서버 공감 등록 및 취소
+              onToggleLike={(id) => void toggleServerLike(id)}
             />
           ))
         ) : (
