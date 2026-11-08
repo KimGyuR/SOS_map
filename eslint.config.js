@@ -7,4 +7,12 @@ module.exports = defineConfig([
   {
     ignores: ['dist/*'],
   },
+  {
+    // Tests run directly in Node.js (node --test), not in the app bundle.
+    files: ['tests/**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { __dirname: 'readonly', __filename: 'readonly', process: 'readonly' },
+    },
+  },
 ]);
